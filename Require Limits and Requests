@@ -1,38 +1,58 @@
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
 metadata:
-  name: require-requests-limits
+  name: add-ns-quota
   annotations:
-    policies.kyverno.io/title: Require Limits and Requests
-    policies.kyverno.io/category: Best Practices, EKS Best Practices
-    policies.kyverno.io/severity: medium
-    policies.kyverno.io/subject: Pod
+    policies.kyverno.io/title: Add Quota
+    policies.kyverno.io/category: Multi-Tenancy, EKS Best Practices
+    policies.kyverno.io/subject: ResourceQuota, LimitRange
     policies.kyverno.io/minversion: 1.6.0
     policies.kyverno.io/description: >-
-      As application workloads share cluster resources, it is important to limit resources
-      requested and consumed by each Pod. It is recommended to require resource requests and
-      limits per Pod, especially for memory and CPU. If a Namespace level request or limit is specified,
-      defaults will automatically be applied to each Pod based on the LimitRange configuration.
-      This policy validates that all containers have something specified for memory and CPU
-      requests and memory limits.      
+      To better control the number of resources that can be created in a given
+      Namespace and provide default resource consumption limits for Pods,
+      ResourceQuota and LimitRange resources are recommended.
+      This policy will generate ResourceQuota and LimitRange resources when
+      a new Namespace is created.      
 spec:
-  validationFailureAction: audit
-  background: true
   rules:
-  - name: validate-resources
+  - name: generate-resourcequota
     match:
       any:
       - resources:
           kinds:
-          - Pod
-    validate:
-      message: "CPU and memory resource requests and limits are required."
-      pattern:
+          - Namespace
+    generate:
+      apiVersion: v1
+      kind: ResourceQuota
+      name: default-resourcequota
+      synchronize: true
+      namespace: "{{request.object.metadata.name}}"
+      data:
         spec:
-          containers:
-          - resources:
-              requests:
-                memory: "?*"
-                cpu: "?*"
-              limits:
-                memory: "?*"
+          hard:
+            requests.cpu: '4'
+            requests.memory: '16Gi'
+            limits.cpu: '4'
+            limits.memory: '16Gi'
+  - name: generate-limitrange
+    match:
+      any:
+      - resources:
+          kinds:
+          - Namespace
+    generate:
+      apiVersion: v1
+      kind: LimitRange
+      name: default-limitrange
+      synchronize: true
+      namespace: "{{request.object.metadata.name}}"
+      data:
+        spec:
+          limits:
+          - default:
+              cpu: 1000m
+              memory: 4Gi
+            defaultRequest:
+              cpu: 200m
+              memory: 256Mi
+            type: Container
